@@ -1,0 +1,1278 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#F6F4FC" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#15131F" media="(prefers-color-scheme: dark)">
+<title>לוח הנסיעות</title>
+<!-- התקנה כאפליקציה: מניפסט וקבצי אייקון אמיתיים (manifest.json, icon-*.png) + תגי iOS -->
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="לוח הנסיעות">
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: {
+      extend: {
+        colors: {
+          ground: 'var(--ground)', surface: 'var(--surface)', 'surface-2': 'var(--surface-2)',
+          ink: 'var(--ink)', 'ink-soft': 'var(--ink-soft)', line: 'var(--line)',
+          accent: 'var(--accent)', 'accent-soft': 'var(--accent-soft)', bronze: 'var(--bronze)',
+          fair: 'var(--fair)', debt: 'var(--debt)', warn: 'var(--warn)',
+          me: 'var(--me)', 'me-soft': 'var(--me-soft)',
+          partner: 'var(--partner)', 'partner-soft': 'var(--partner-soft)', other: 'var(--other)'
+        },
+        fontFamily: {
+          display: ['"Frank Ruhl Libre"', 'Georgia', 'serif'],
+          sans: ['Assistant', '"Segoe UI"', 'system-ui', 'sans-serif']
+        },
+        boxShadow: { card: 'var(--shadow)' }
+      }
+    }
+  };
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;500;600;700&family=Frank+Ruhl+Libre:wght@500;700;900&display=swap">
+
+<style>
+  :root {
+    --ground: #F6F4FC;  --surface: #FFFFFF;  --surface-2: #EDEAF8;
+    --ink: #201C34;     --ink-soft: #6A6488; --line: #E2DEF3;
+    --accent: #5B4FE8;  --accent-soft: rgba(91,79,232,.10); --bronze: #A66512;
+    --fair: #157F45;    --warn: #8A6D00;     --debt: #C2273D;
+    --me: #2F80ED;      --me-soft: rgba(47,128,237,.13);
+    --partner: #E2542D; --partner-soft: rgba(226,84,45,.14);
+    --other: #6E6789;
+    --shadow: 0 1px 2px rgba(32,28,52,.06), 0 14px 30px -14px rgba(32,28,52,.20);
+  }
+  .dark {
+    --ground: #15131F;  --surface: #1E1B2E;  --surface-2: #272440;
+    --ink: #EDEBFA;     --ink-soft: #A39DC4; --line: #332E4D;
+    --accent: #9C90FF;  --accent-soft: rgba(156,144,255,.16); --bronze: #F0B429;
+    --fair: #37D488;    --warn: #D9A62E;     --debt: #FF6B81;
+    --me: #5FA6FF;      --me-soft: rgba(95,166,255,.16);
+    --partner: #FF8A5C; --partner-soft: rgba(255,138,92,.17);
+    --other: #ABA4CE;
+    --shadow: 0 1px 2px rgba(0,0,0,.35), 0 16px 34px -14px rgba(0,0,0,.55);
+  }
+  html, body { background: var(--ground); color: var(--ink); }
+  body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+  * { -webkit-tap-highlight-color: transparent; }
+  .tnum { font-variant-numeric: tabular-nums; }
+  input, textarea { font-family: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+  ::selection { background: var(--accent-soft); }
+  .chart-svg { touch-action: pan-y; cursor: crosshair; user-select: none; -webkit-user-select: none; }
+  @media (prefers-reduced-motion: no-preference) {
+    button, .tap { transition: transform .1s ease, background-color .15s ease, border-color .15s ease, box-shadow .15s ease, opacity .15s ease; }
+    button:active, .tap:active { transform: scale(.978); }
+  }
+</style>
+</head>
+<body>
+
+<script>
+  // Pre-paint theme so nothing flashes.
+  try {
+    var _s = JSON.parse(localStorage.getItem('carpool-ledger-v1') || '{}');
+    var _p = _s.theme || 'system';
+    var _dt = document.documentElement.getAttribute('data-theme');
+    var _dark = _p === 'dark' ||
+      (_p === 'system' && (_dt === 'dark' || (!_dt && window.matchMedia('(prefers-color-scheme: dark)').matches)));
+    if (_dark) document.documentElement.classList.add('dark');
+  } catch (e) {}
+</script>
+
+<div id="root"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.26.4/babel.min.js"></script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useCallback, useRef } = React;
+
+/* ------------------------------------------------------------------ *
+ *  לוח הנסיעות — מעקב תורנות נהיגה לשניים.
+ *  קובץ יחיד, בלי שלב בנייה. React (UMD) + Tailwind (Play CDN).
+ *  המצב נשמר ב-localStorage תחת `carpool-ledger-v1`.
+ * ------------------------------------------------------------------ */
+
+const STORE_KEY = 'carpool-ledger-v1';
+const LOCALE = 'he-IL';
+const MAX_SPAN = 3660;                     // תקרת ימים לחישוב — נגד נתון מקולקל שמאט את האפליקציה
+
+const DEFAULT_STATE = {
+  drivers: { me: 'אני', partner: 'שותף' },
+  schedule: { 0: 'partner', 1: 'me', 2: 'me', 3: 'shared', 4: 'shared', 5: 'none', 6: 'none' },
+  overrides: {},            // { 'YYYY-MM-DD': { actual: 'me'|'partner'|'other'|'none'|null, note: '' } }
+  startedOn: '2026-01-01',  // מוחלף בטעינה ראשונה לתאריך אמיתי
+  settledFrom: null,        // המאזן נספר מכאן כשמוגדר
+  costPerDrive: 0,          // ₪ משוער לנסיעה (דלק); 0 = לא מוצג בכסף
+  theme: 'system',          // 'system' | 'light' | 'dark'
+};
+
+const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+const DAY_LETTER = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'];
+const ACTUALS = ['me', 'partner', 'other', 'none'];
+const SCHED_VALUES = ['me', 'partner', 'shared', 'none'];
+const THEME_LABEL = { system: 'לפי המכשיר', light: 'בהיר', dark: 'כהה' };
+
+/* ---------- עזרי תאריך (זמן מקומי, מבוססי מפתח ISO) ---------- */
+const pad = (n) => String(n).padStart(2, '0');
+const keyOf = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const parseKey = (k) => { const [y, m, d] = k.split('-').map(Number); return new Date(y, m - 1, d, 12, 0, 0, 0); };
+const noon = (d) => { const x = new Date(d); x.setHours(12, 0, 0, 0); return x; };
+const todayKey = () => keyOf(noon(new Date()));
+const monthStartKey = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-01`;
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return noon(x); };
+const fmtShort = (k) => parseKey(k).toLocaleDateString(LOCALE, { day: 'numeric', month: 'short' });
+const fmtLong = (d) => d.toLocaleDateString(LOCALE, { weekday: 'long', day: 'numeric', month: 'long' });
+const isKey = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(parseKey(s).getTime());
+const clampFrom = (fromKey) => { const min = keyOf(addDays(noon(new Date()), -MAX_SPAN)); return fromKey < min ? min : fromKey; };
+const sameWeek = (a, b) => keyOf(addDays(a, -a.getDay())) === keyOf(addDays(b, -b.getDay()));
+const sameMonth = (a, b) => a.getMonth() === b.getMonth() && a.getFullYear() === b.getFullYear();
+
+function eachKey(fromKey, toKey) {
+  const out = [];
+  let d = parseKey(fromKey);
+  const end = parseKey(toKey);
+  while (d <= end) { out.push(keyOf(d)); d = addDays(d, 1); }
+  return out;
+}
+
+/* אינדקס שבוע רציף (ראשון = תחילת שבוע) — לא קופץ בגבול שנה כמו מספר שבוע ISO */
+const weekIndex = (d) => Math.floor((Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 864e5 - 3) / 7);
+
+/* ---------- לוגיקת הרוטציה ---------- */
+
+// מי אמור לנהוג בתאריך נתון → 'me' | 'partner' | 'none'
+function scheduledOwner(state, d) {
+  const base = state.schedule[d.getDay()];
+  if (base === 'shared') return (weekIndex(d) + d.getDay()) % 2 === 0 ? 'me' : 'partner';
+  return base || 'none';
+}
+
+// מי נהג בפועל. ימי עבר/היום בלי רישום נופלים חזרה ללו"ז ("צפוי").
+function actualDriver(state, d, today) {
+  const ov = state.overrides[keyOf(d)];
+  if (ov && ov.actual) return { who: ov.actual, assumed: false, note: ov.note || '' };
+  const note = (ov && ov.note) || '';
+  const sched = scheduledOwner(state, d);
+  if (keyOf(d) <= keyOf(today) && sched !== 'none') return { who: sched, assumed: true, note };
+  return { who: null, assumed: false, note };
+}
+
+/* מסלול המאזן, יום אחר יום.
+   כלל אחד, סימטרי: מי שנהג ביום שלא היה שלו מקבל נקודה.
+   חיובי → השותף מאחור מולך; שלילי → אתה מאחור. */
+function balanceSeries(state, fromKey) {
+  const today = noon(new Date());
+  const out = [];
+  let bal = 0;
+  for (const k of eachKey(clampFrom(fromKey), todayKey())) {
+    const d = parseKey(k);
+    const { who, note } = actualDriver(state, d, today);
+    const sched = scheduledOwner(state, d);
+    let delta = 0;
+    if ((who === 'me' || who === 'partner') && who !== sched) delta = who === 'me' ? 1 : -1;
+    bal += delta;
+    out.push({ k, bal, delta, who, sched, note });
+  }
+  return out;
+}
+
+function computeBalance(state, fromKey) {
+  const s = balanceSeries(state, fromKey);
+  return s.length ? s[s.length - 1].bal : 0;
+}
+
+function computeTotals(state, fromKey, toKey) {
+  const today = noon(new Date());
+  const t = { me: 0, partner: 0, other: 0 };
+  for (const k of eachKey(clampFrom(fromKey), toKey)) {
+    const { who } = actualDriver(state, parseKey(k), today);
+    if (who === 'me') t.me += 1;
+    else if (who === 'partner') t.partner += 1;
+    else if (who === 'other') t.other += 1;
+  }
+  return t;
+}
+
+// ימי עבר (7 אחרונים, בתוך תקופת המעקב) שעדיין לא אושרו ידנית ויש בהם תור
+function pendingKeys(state) {
+  const out = [];
+  const floor = state.settledFrom && state.settledFrom > state.startedOn ? state.settledFrom : state.startedOn;
+  let from = keyOf(addDays(noon(new Date()), -7));
+  if (from < floor) from = floor;
+  const to = keyOf(addDays(noon(new Date()), -1));
+  if (from > to) return out;
+  for (const k of eachKey(from, to)) {
+    const ov = state.overrides[k];
+    if (ov && ov.actual) continue;
+    if (scheduledOwner(state, parseKey(k)) === 'none') continue;
+    out.push(k);
+  }
+  return out;
+}
+
+/* ---------- שמירה + ניקוי נתונים ---------- */
+
+// כל מה שנכנס (אחסון / גיבוי מודבק) עובר כאן — שום נתון מקולקל לא מפיל את האפליקציה
+function sanitizeState(raw) {
+  const base = { ...DEFAULT_STATE, drivers: { ...DEFAULT_STATE.drivers }, schedule: { ...DEFAULT_STATE.schedule },
+    startedOn: keyOf(addDays(noon(new Date()), -13)) };
+  if (!raw || typeof raw !== 'object') return base;
+  const name = (v, fb) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 20) : fb);
+  const dr = raw.drivers && typeof raw.drivers === 'object' ? raw.drivers : {};
+  const sc = raw.schedule && typeof raw.schedule === 'object' ? raw.schedule : {};
+  const schedule = {};
+  for (let i = 0; i < 7; i++) schedule[i] = SCHED_VALUES.includes(sc[i]) ? sc[i] : base.schedule[i];
+  const overrides = {};
+  if (raw.overrides && typeof raw.overrides === 'object') {
+    for (const [k, v] of Object.entries(raw.overrides)) {
+      if (!isKey(k) || !v || typeof v !== 'object') continue;
+      const actual = ACTUALS.includes(v.actual) ? v.actual : null;
+      const note = typeof v.note === 'string' ? v.note.slice(0, 200) : '';
+      if (actual || note) overrides[k] = { actual, note };
+    }
+  }
+  const cost = Number(raw.costPerDrive);
+  return {
+    drivers: { me: name(dr.me, base.drivers.me), partner: name(dr.partner, base.drivers.partner) },
+    schedule,
+    overrides,
+    startedOn: isKey(raw.startedOn) ? raw.startedOn : base.startedOn,
+    settledFrom: isKey(raw.settledFrom) ? raw.settledFrom : null,
+    costPerDrive: Number.isFinite(cost) && cost > 0 ? Math.min(Math.round(cost), 9999) : 0,
+    theme: ['system', 'light', 'dark'].includes(raw.theme) ? raw.theme : 'system',
+  };
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (raw) return sanitizeState(JSON.parse(raw));
+  } catch (e) {}
+  return sanitizeState(null);
+}
+
+/* ---------- שעון: מתעדכן בחצות ובחזרה לאפליקציה ---------- */
+function useToday() {
+  const [k, setK] = useState(todayKey);
+  useEffect(() => {
+    const check = () => setK((p) => { const n = todayKey(); return n === p ? p : n; });
+    const id = setInterval(check, 30000);
+    document.addEventListener('visibilitychange', check);
+    window.addEventListener('focus', check);
+    return () => { clearInterval(id); document.removeEventListener('visibilitychange', check); window.removeEventListener('focus', check); };
+  }, []);
+  return k;
+}
+
+/* ---------- העתקה: clipboard, ואם נחסם — גיבוי ישן ---------- */
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch (e) {}
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;top:0;opacity:0';
+    document.body.appendChild(ta); ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch (e) { return false; }
+}
+
+/* ================================================================== *
+ *  פרימיטיבים
+ * ================================================================== */
+
+const DRIVER_COLOR = { me: 'var(--me)', partner: 'var(--partner)', other: 'var(--other)', none: 'var(--line)' };
+const DRIVER_SOFT = { me: 'var(--me-soft)', partner: 'var(--partner-soft)', other: 'var(--surface-2)', none: 'transparent' };
+
+const labelFor = (state, who) =>
+  ({ me: state.drivers.me, partner: state.drivers.partner, other: 'טרמפ אחר', none: 'בלי נסיעה' }[who] || who);
+function markGlyph(state, who) {
+  if (who === 'other') return '↗';
+  if (who === 'me') return (state.drivers.me.trim()[0] || 'א');
+  if (who === 'partner') return (state.drivers.partner.trim()[0] || 'ש');
+  return '–';
+}
+const shekel = (n) => '≈ ₪' + Math.round(n).toLocaleString('he-IL');
+const nsuf = (n) => (n === 1 ? 'נסיעה' : 'נסיעות');
+// מבודד כיוון (LTR) — אחרת בתוך טקסט עברי "+2" מתהפך ל-"2+"
+const signed = (n) => '⁦' + (n > 0 ? '+' + n : n < 0 ? '−' + Math.abs(n) : '0') + '⁩';
+
+function Card({ children, className = '', ...rest }) {
+  return <section {...rest} className={'rounded-2xl border border-line bg-surface shadow-card ' + className}>{children}</section>;
+}
+function Eyebrow({ children }) {
+  return <div className="text-[11px] font-bold uppercase tracking-[0.13em] text-ink-soft">{children}</div>;
+}
+function Dot({ who, className = '' }) {
+  return <span className={'inline-block h-2.5 w-2.5 shrink-0 rounded-full align-middle ' + className}
+    style={{ background: DRIVER_COLOR[who] || 'var(--line)' }} />;
+}
+
+function Seg({ value, onChange, options, label }) {
+  return (
+    <div role="group" aria-label={label} className="inline-flex max-w-full rounded-xl bg-surface-2 p-1">
+      {options.map((o) => (
+        <button key={o.value} onClick={() => onChange(o.value)} aria-pressed={value === o.value}
+          className={'min-w-0 truncate rounded-lg px-3 py-1.5 text-xs transition ' +
+            (value === o.value ? 'bg-surface text-ink shadow-sm font-bold' : 'text-ink-soft font-semibold')}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function IconButton({ label, onClick, children }) {
+  return (
+    <button onClick={onClick} aria-label={label}
+      className="grid h-10 w-10 place-items-center rounded-xl border border-line bg-surface text-base text-ink-soft">
+      {children}
+    </button>
+  );
+}
+
+/* חלון תחתון נגיש: פוקוס נכנס פנימה, Tab לא בורח, Esc סוגר, הפוקוס חוזר בסגירה */
+function Sheet({ title, onClose, children }) {
+  const ref = useRef(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    const el = ref.current;
+    const prev = document.activeElement;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    el.focus();
+    const focusables = () => [...el.querySelectorAll('button, input, textarea, select, [href], [tabindex]:not([tabindex="-1"])')]
+      .filter((n) => !n.disabled && n.offsetParent !== null);
+    const onKey = (e) => {
+      if (e.key === 'Escape') { closeRef.current(); return; }
+      if (e.key !== 'Tab') return;
+      const f = focusables();
+      if (!f.length) return;
+      const first = f[0], last = f[f.length - 1], active = document.activeElement;
+      if (e.shiftKey && (active === first || active === el)) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+      if (prev && prev.focus) prev.focus();
+    };
+  }, []);
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center">
+      <div className="absolute inset-0 bg-black/45 backdrop-blur-[2px]" onClick={onClose} />
+      <div ref={ref} tabIndex={-1} role="dialog" aria-modal="true" aria-label={title}
+        className="relative w-full max-w-[460px] max-h-[88vh] overflow-y-auto rounded-t-[26px] border border-b-0 border-line bg-surface p-5 pb-8 shadow-card outline-none">
+        <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-line" />
+        <div className="mb-5 flex items-center justify-between">
+          <h2 className="font-display text-lg font-bold">{title}</h2>
+          <button onClick={onClose} aria-label="סגירה" className="-m-2 grid h-9 w-9 place-items-center text-lg text-ink-soft">✕</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function ConfirmSheet({ title, body, confirmLabel, danger, onConfirm, onClose }) {
+  return (
+    <Sheet title={title} onClose={onClose}>
+      <p className="text-sm leading-relaxed text-ink-soft">{body}</p>
+      <div className="mt-6 flex gap-2">
+        <button onClick={() => { onConfirm(); onClose(); }}
+          className="flex-1 rounded-xl px-4 py-3 text-sm font-bold"
+          style={{ background: danger ? 'var(--debt)' : 'var(--ink)', color: 'var(--surface)' }}>
+          {confirmLabel}
+        </button>
+        <button onClick={onClose} className="rounded-xl border border-line px-5 py-3 text-sm font-semibold">ביטול</button>
+      </div>
+    </Sheet>
+  );
+}
+
+/* קופץ תחתון עם ביטול — נגד בלאגן ממגע שגוי. אזור ההקראה קיים תמיד כדי שקורא מסך יכריז. */
+function Toast({ toast, onClose }) {
+  useEffect(() => {
+    if (!toast) return;
+    const id = setTimeout(onClose, toast.onUndo ? 5200 : 2600);
+    return () => clearTimeout(id);
+  }, [toast, onClose]);
+  return (
+    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-[60] flex justify-center px-4" aria-live="polite" role="status">
+      {toast && (
+        <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-line px-4 py-2.5 text-sm font-semibold shadow-card"
+          style={{ background: 'var(--ink)', color: 'var(--surface)' }}>
+          <span>{toast.msg}</span>
+          {toast.onUndo && (
+            <button onClick={() => { toast.onUndo(); onClose(); }}
+              className="rounded-full px-2 py-0.5 text-xs font-bold" style={{ background: 'var(--surface)', color: 'var(--ink)' }}>
+              ביטול
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* רשת ביטחון אחרונה — במקום מסך לבן */
+class ErrorBoundary extends React.Component {
+  constructor(p) { super(p); this.state = { err: null }; }
+  static getDerivedStateFromError(err) { return { err }; }
+  render() {
+    if (!this.state.err) return this.props.children;
+    let raw = '';
+    try { raw = localStorage.getItem(STORE_KEY) || ''; } catch (e) {}
+    return (
+      <div className="mx-auto max-w-[460px] p-5 font-sans">
+        <h1 className="font-display text-2xl font-black">משהו השתבש</h1>
+        <p className="mt-2 text-sm text-ink-soft">
+          הנתונים שלך שמורים. אפשר לנסות לטעון מחדש, ואם זה חוזר — להעתיק את הטקסט שמתחת (גיבוי) ואז לאפס.
+        </p>
+        <textarea readOnly value={raw} rows={5} dir="ltr" onFocus={(e) => e.target.select()}
+          className="mt-3 w-full resize-none rounded-xl border border-line bg-surface-2 p-3 text-[12px] text-ink" />
+        <div className="mt-3 flex gap-2">
+          <button onClick={() => location.reload()} className="flex-1 rounded-xl px-4 py-3 text-sm font-bold"
+            style={{ background: 'var(--ink)', color: 'var(--surface)' }}>טעינה מחדש</button>
+          <button onClick={() => { try { localStorage.removeItem(STORE_KEY); } catch (e) {} location.reload(); }}
+            className="flex-1 rounded-xl border border-line px-4 py-3 text-sm font-bold text-debt">איפוס ונסיון חוזר</button>
+        </div>
+      </div>
+    );
+  }
+}
+
+/* ================================================================== *
+ *  גיליון סיכום לשיתוף — נגד ויכוחים
+ * ================================================================== */
+
+function summaryText(state, fromKey) {
+  const t = computeTotals(state, fromKey, todayKey());
+  const bal = computeBalance(state, fromKey);
+  const cost = Number(state.costPerDrive) || 0;
+  const m = (n) => (cost ? ` (${shekel(n * cost)})` : '');
+  const lines = [
+    `סיכום נסיעות · מאז ${fmtShort(fromKey)}`,
+    ``,
+    `${state.drivers.me}: ${t.me} ${nsuf(t.me)}${m(t.me)}`,
+    `${state.drivers.partner}: ${t.partner} ${nsuf(t.partner)}${m(t.partner)}`,
+  ];
+  if (t.other) lines.push(`טרמפ אחר: ${t.other}`);
+  lines.push('');
+  const abs = Math.abs(bal);
+  if (abs <= 1) lines.push('מאוזנים מול התוכנית 🤝');
+  else if (bal > 0) lines.push(`${state.drivers.partner} מאחור ב-${abs} ${nsuf(abs)}${cost ? ` — ${shekel(abs * cost)}` : ''}`);
+  else lines.push(`${state.drivers.me} מאחור ב-${abs} ${nsuf(abs)}${cost ? ` — ${shekel(abs * cost)}` : ''}`);
+  return lines.join('\n');
+}
+
+function SummarySheet({ state, onClose, onToast }) {
+  const [range, setRange] = useState('all');
+  const fromKey = range === 'month' ? monthStartKey() : (state.settledFrom || state.startedOn);
+  const text = summaryText(state, fromKey);
+  const canShare = typeof navigator.share === 'function';
+  const copy = async () => {
+    if (await copyText(text)) { onToast('הסיכום הועתק ✓'); onClose(); }
+    else onToast('ההעתקה נחסמה — סמן את הטקסט והעתק ידנית');
+  };
+  const share = async () => {
+    try { await navigator.share({ text }); onClose(); }
+    catch (e) { if (!e || e.name !== 'AbortError') onToast('השיתוף לא זמין — העתק ידנית'); }
+  };
+  return (
+    <Sheet title="סיכום לשיתוף" onClose={onClose}>
+      <div className="mb-3 flex justify-center">
+        <Seg value={range} onChange={setRange} label="טווח"
+          options={[{ value: 'month', label: 'החודש' }, { value: 'all', label: 'הכול' }]} />
+      </div>
+      <textarea readOnly value={text} rows={8} onFocus={(e) => e.target.select()}
+        className="w-full resize-none rounded-xl border border-line bg-surface-2 p-3 text-sm leading-relaxed text-ink" />
+      <div className="mt-3 flex gap-2">
+        <button onClick={copy} className="flex-1 rounded-xl px-4 py-3 text-sm font-bold"
+          style={{ background: 'var(--ink)', color: 'var(--surface)' }}>העתקה</button>
+        {canShare && (
+          <button onClick={share} className="flex-1 rounded-xl border border-line px-4 py-3 text-sm font-bold">שליחה…</button>
+        )}
+      </div>
+      <p className="mt-2 text-center text-[11px] text-ink-soft">מוכן להדבקה בוואטסאפ</p>
+    </Sheet>
+  );
+}
+
+/* ================================================================== *
+ *  גיבוי / שחזור — נגד אובדן נתונים
+ * ================================================================== */
+
+function BackupSheet({ state, onRestore, onClose, onToast }) {
+  const [text, setText] = useState(() => JSON.stringify(state));
+  const copy = async () => {
+    if (await copyText(JSON.stringify(state))) onToast('הגיבוי הועתק ✓');
+    else onToast('ההעתקה נחסמה — סמן את הטקסט והעתק ידנית');
+  };
+  const restore = () => {
+    try {
+      const parsed = JSON.parse(text);
+      if (!parsed || typeof parsed !== 'object' || !parsed.drivers || !parsed.schedule) throw new Error('bad');
+      onRestore(sanitizeState(parsed)); onToast('שוחזר מגיבוי ✓'); onClose();
+    } catch (e) { onToast('הטקסט אינו גיבוי תקין'); }
+  };
+  return (
+    <Sheet title="גיבוי ושחזור" onClose={onClose}>
+      <p className="text-[12px] leading-relaxed text-ink-soft">
+        הנתונים נשמרים רק בדפדפן הזה. כדאי להעתיק גיבוי מדי פעם ולשמור אותו (בהערה לעצמך / מייל).
+        לשחזור — הדבק כאן גיבוי ולחץ שחזור.
+      </p>
+      <textarea value={text} onChange={(e) => setText(e.target.value)} rows={6} dir="ltr"
+        aria-label="טקסט הגיבוי"
+        className="mt-3 w-full resize-none rounded-xl border border-line bg-surface-2 p-3 text-[12px] text-ink" />
+      <div className="mt-3 flex gap-2">
+        <button onClick={copy} className="flex-1 rounded-xl px-4 py-3 text-sm font-bold"
+          style={{ background: 'var(--ink)', color: 'var(--surface)' }}>העתקת גיבוי</button>
+        <button onClick={restore} className="flex-1 rounded-xl border border-line px-4 py-3 text-sm font-bold">שחזור</button>
+      </div>
+    </Sheet>
+  );
+}
+
+/* ================================================================== *
+ *  הגדרות
+ * ================================================================== */
+
+/* שדה שם: מותר לרוקן תוך כדי עריכה; הערך התקף האחרון נשמר, ובעזיבה חוזר אליו */
+function NameField({ label, value, onCommit }) {
+  const [v, setV] = useState(value);
+  useEffect(() => { setV(value); }, [value]);
+  return (
+    <label className="min-w-0 text-xs font-semibold text-ink-soft">{label}
+      <input value={v} maxLength={20}
+        onChange={(e) => { setV(e.target.value); const t = e.target.value.trim(); if (t) onCommit(t); }}
+        onBlur={() => { if (!v.trim()) setV(value); }}
+        className="mt-1 w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-sm text-ink" />
+    </label>
+  );
+}
+
+function Settings({ state, patch, onClose, onReset, onBackup }) {
+  const schedOpts = [
+    { value: 'me', label: state.drivers.me }, { value: 'partner', label: state.drivers.partner },
+    { value: 'shared', label: 'משותף' }, { value: 'none', label: 'חופשי' },
+  ];
+  return (
+    <Sheet title="הגדרות" onClose={onClose}>
+      <div className="space-y-7">
+        <div>
+          <Eyebrow>נהגים</Eyebrow>
+          <div className="mt-2.5 grid grid-cols-2 gap-2">
+            <NameField label="אני" value={state.drivers.me}
+              onCommit={(t) => patch({ drivers: { ...state.drivers, me: t } })} />
+            <NameField label="שותף" value={state.drivers.partner}
+              onCommit={(t) => patch({ drivers: { ...state.drivers, partner: t } })} />
+          </div>
+        </div>
+
+        <div>
+          <Eyebrow>רוטציה שבועית</Eyebrow>
+          <div className="mt-2.5 space-y-2">
+            {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+              <div key={i} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+                <span className="w-16 shrink-0 text-sm font-semibold">{DAY_NAMES[i]}</span>
+                <Seg value={state.schedule[i]} label={DAY_NAMES[i]}
+                  onChange={(v) => patch({ schedule: { ...state.schedule, [i]: v } })} options={schedOpts} />
+              </div>
+            ))}
+          </div>
+          <p className="mt-2 text-[11px] text-ink-soft">ימים משותפים מתחלפים ביניכם בכל שבוע.</p>
+        </div>
+
+        <div>
+          <Eyebrow>עלות דלק לנסיעה</Eyebrow>
+          <div className="mt-2.5 flex items-center gap-2">
+            <span className="text-sm text-ink-soft">₪</span>
+            <input type="number" min="0" max="9999" inputMode="numeric" value={state.costPerDrive || ''}
+              aria-label="עלות דלק לנסיעה בשקלים"
+              onChange={(e) => patch({ costPerDrive: Math.min(9999, Math.max(0, Math.round(Number(e.target.value) || 0))) })}
+              placeholder="0" className="w-24 rounded-xl border border-line bg-surface px-3 py-2.5 text-sm text-ink" />
+            <span className="text-xs text-ink-soft">אם מוגדר, הכול מוצג גם בשקלים</span>
+          </div>
+        </div>
+
+        <div>
+          <Eyebrow>מראה</Eyebrow>
+          <div className="mt-2.5">
+            <Seg value={state.theme} onChange={(v) => patch({ theme: v })} label="מראה"
+              options={[{ value: 'system', label: 'מערכת' }, { value: 'light', label: 'בהיר' }, { value: 'dark', label: 'כהה' }]} />
+          </div>
+        </div>
+
+        <div className="space-y-2.5 border-t border-line pt-5">
+          <button onClick={onBackup} className="block text-sm font-bold text-accent">גיבוי ושחזור</button>
+          <button onClick={onReset} className="block text-sm font-bold text-debt">איפוס הכול</button>
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
+/* ================================================================== *
+ *  כותרת
+ * ================================================================== */
+
+function Header({ state, onCycleTheme, onSettings }) {
+  const glyph = { system: '◐', light: '☀', dark: '☾' }[state.theme];
+  return (
+    <header className="flex items-start justify-between">
+      <div>
+        <h1 className="font-display text-[26px] font-black leading-none tracking-tight">לוח הנסיעות</h1>
+        <p className="mt-2 text-[12px] font-medium text-ink-soft">מי נוהג — ומי מאחור</p>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <IconButton label={'מראה: ' + THEME_LABEL[state.theme] + ' — לחיצה מחליפה'} onClick={onCycleTheme}>{glyph}</IconButton>
+        <IconButton label="הגדרות" onClick={onSettings}>⚙</IconButton>
+      </div>
+    </header>
+  );
+}
+
+/* ================================================================== *
+ *  מסלול המאזן — גרף אינטראקטיבי (גוררים על הגרף; לחיצה בוחרת את היום)
+ *  ציר הזמן זורם מימין לשמאל, כמו לוח השבוע: הישן מימין, "היום" משמאל.
+ * ================================================================== */
+
+function BalanceChart({ series, state, onPick }) {
+  const svgRef = useRef(null);
+  const uid = useMemo(() => 'bc' + Math.random().toString(36).slice(2, 8), []);
+  const [idx, setIdx] = useState(null);
+  const n = series.length;
+  if (n < 2) return null;
+
+  const W = 320, H = 136, padL = 12, xr = 288, padT = 18, padB = 24;
+  const m = Math.max(2, ...series.map((s) => Math.abs(s.bal)));
+  const plotH = H - padT - padB;
+  const x = (i) => xr - (i * (xr - padL)) / (n - 1);
+  const y = (v) => padT + ((m - v) / (2 * m)) * plotH;
+  const zy = y(0);
+  const last = series[n - 1];
+
+  let d = `M${x(0)} ${y(series[0].bal)}`;
+  for (let i = 1; i < n; i++) d += ` H${x(i)} V${y(series[i].bal)}`;
+  const area = `${d} V${zy} H${x(0)} Z`;
+
+  const fromEvent = (e) => {
+    const r = svgRef.current.getBoundingClientRect();
+    const px = ((e.clientX - r.left) / r.width) * W;
+    return Math.max(0, Math.min(n - 1, Math.round(((xr - px) / (xr - padL)) * (n - 1))));
+  };
+  const onKeyDown = (e) => {
+    const cur = idx == null ? n - 1 : idx;
+    let next = null;
+    if (e.key === 'ArrowLeft') next = Math.min(n - 1, cur + 1);       // שמאלה = יותר קרוב להיום
+    else if (e.key === 'ArrowRight') next = Math.max(0, cur - 1);
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = n - 1;
+    else if (e.key === 'Enter' && idx != null) { onPick(series[idx].k); return; }
+    if (next != null) { e.preventDefault(); setIdx(next); }
+  };
+
+  const sideColor = (v) => (v > 0 ? 'var(--me)' : v < 0 ? 'var(--partner)' : 'var(--ink-soft)');
+  const active = idx != null ? series[idx] : null;
+  const activeText = active && (
+    active.delta !== 0
+      ? `${labelFor(state, active.who)} נהג ביום ${active.sched === 'none' ? 'חופשי' : 'של ' + labelFor(state, active.sched)}`
+      : active.who === 'other' ? 'טרמפ אחר' : active.who === 'none' ? 'לא נסענו'
+        : active.who ? 'לפי התוכנית' : 'יום חופשי'
+  );
+  const balText = (v) => (v === 0 ? 'מאוזן' : `${signed(v)} לטובת ${v > 0 ? state.drivers.me : state.drivers.partner}`);
+  const tipLeft = active ? Math.max(24, Math.min(76, (x(idx) / W) * 100)) : 0;
+
+  return (
+    <div className="relative">
+      <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="chart-svg block h-auto w-full" style={{ direction: 'ltr' }}
+        tabIndex={0} role="group" aria-label={`מסלול המאזן, כרגע ${balText(last.bal)}. חצים להזזה, Enter לבחירת יום.`}
+        onPointerDown={(e) => setIdx(fromEvent(e))} onPointerMove={(e) => setIdx(fromEvent(e))}
+        onPointerLeave={() => setIdx(null)} onBlur={() => setIdx(null)} onKeyDown={onKeyDown}
+        onPointerUp={(e) => { if (e.pointerType === 'touch' || e.pointerType === 'mouse') onPick(series[fromEvent(e)].k); }}>
+        <defs>
+          <clipPath id={uid + 'a'}><rect x="0" y="0" width={W} height={zy} /></clipPath>
+          <clipPath id={uid + 'b'}><rect x="0" y={zy} width={W} height={H - zy} /></clipPath>
+        </defs>
+
+        <line x1={padL} x2={xr} y1={y(m)} y2={y(m)} stroke="var(--line)" strokeWidth="1" />
+        <line x1={padL} x2={xr} y1={y(-m)} y2={y(-m)} stroke="var(--line)" strokeWidth="1" />
+        <path d={area} fill="var(--me-soft)" clipPath={`url(#${uid}a)`} />
+        <path d={area} fill="var(--partner-soft)" clipPath={`url(#${uid}b)`} />
+        <line x1={padL} x2={xr} y1={zy} y2={zy} stroke="var(--ink-soft)" strokeWidth="1" opacity="0.45" />
+
+        {[[m, signed(m)], [0, '0'], [-m, signed(-m)]].map(([v, t]) => (
+          <text key={t} x={W - 2} y={y(v) + 3.5} textAnchor="end" fontSize="10" fill="var(--ink-soft)">{t}</text>
+        ))}
+        <text x={xr} y={H - 6} textAnchor="end" fontSize="10" fill="var(--ink-soft)">{fmtShort(series[0].k)}</text>
+        <text x={padL} y={H - 6} textAnchor="start" fontSize="10" fill="var(--ink-soft)">היום</text>
+
+        <path d={d} fill="none" stroke="var(--ink)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+
+        {active && <line x1={x(idx)} x2={x(idx)} y1={padT} y2={H - padB} stroke="var(--ink-soft)" strokeWidth="1" opacity="0.6" />}
+        {active && <circle cx={x(idx)} cy={y(active.bal)} r="4" fill="var(--ink)" stroke="var(--surface)" strokeWidth="2" />}
+
+        <circle cx={x(n - 1)} cy={y(last.bal)} r="4.5" fill={sideColor(last.bal)} stroke="var(--surface)" strokeWidth="2" />
+        <text x={x(n - 1) + 1} y={y(last.bal) + ((last.bal >= 0 && y(last.bal) - 10 >= 11) || y(last.bal) + 17 > H - padB ? -10 : 17)}
+          textAnchor="start" fontSize="11" fontWeight="700" fill="var(--ink)">{signed(last.bal)}</text>
+      </svg>
+
+      <div aria-live="polite" className="pointer-events-none absolute top-0 z-10 -translate-x-1/2"
+        style={{ left: tipLeft + '%', display: active ? 'block' : 'none' }}>
+        {active && (
+          <div className="min-w-[8.5rem] max-w-[13rem] rounded-xl border border-line bg-surface px-3 py-2 text-center shadow-card">
+            <div className="text-[10px] font-semibold text-ink-soft">{fmtLong(parseKey(active.k))}</div>
+            <div className="text-[13px] font-extrabold text-ink">{balText(active.bal)}</div>
+            <div className="text-[11px] text-ink-soft">{activeText}{active.note ? ' · ' + active.note : ''}</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ================================================================== *
+ *  מי הוציא יותר
+ * ================================================================== */
+
+function ScoreCard({ state, todayK, range, setRange, fromKey, series, onSettle, onShare }) {
+  const t = useMemo(() => computeTotals(state, fromKey, todayK), [state, fromKey, todayK]);
+  const bal = series.length ? series[series.length - 1].bal : 0;
+
+  const cost = Number(state.costPerDrive) || 0;
+  const abs = Math.abs(bal);
+  const tone = abs <= 1 ? 'fair' : abs <= 3 ? 'warn' : 'debt';
+  const verdict = abs <= 1
+    ? 'מאוזנים מול התוכנית'
+    : `${bal > 0 ? state.drivers.partner : 'אתה'} חייב/ת ${bal > 0 ? 'לך' : 'ל' + state.drivers.partner} ${abs} ${nsuf(abs)}${cost ? ` · ${shekel(abs * cost)}` : ''}`;
+
+  const max = Math.max(t.me, t.partner, 1);
+  const people = [['me', state.drivers.me, t.me], ['partner', state.drivers.partner, t.partner]];
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex items-center justify-between p-5 pb-4">
+        <h2 className="font-display text-xl font-bold leading-none">מי הוציא יותר</h2>
+        <Seg value={range} onChange={setRange} label="טווח"
+          options={[{ value: 'month', label: 'החודש' }, { value: 'all', label: 'הכול' }]} />
+      </div>
+
+      <div className="relative grid grid-cols-2 border-t border-line">
+        <div className="absolute inset-y-4 right-1/2 w-px bg-line" />
+        {people.map(([who, name, n]) => (
+          <div key={who} className="flex min-w-0 flex-col items-center gap-1.5 px-3 py-5">
+            <div className="flex max-w-full items-center gap-1.5 text-sm font-bold"><Dot who={who} /> <span className="truncate">{name}</span></div>
+            <div className="font-display text-[42px] font-black leading-none tnum" style={{ color: DRIVER_COLOR[who] }}>{n}</div>
+            <div className="text-[11px] font-medium text-ink-soft">{cost ? `נסיעות · ${shekel(n * cost)}` : nsuf(n)}</div>
+            <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
+              <div className="h-full rounded-full" style={{ width: (n / max) * 100 + '%', background: DRIVER_COLOR[who] }} />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-start gap-2.5 border-t border-line p-5">
+        <span className="mt-[5px] h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: `var(--${tone})` }} />
+        <div className="flex-1">
+          <p className="font-display text-[17px] font-bold leading-snug" style={{ color: `var(--${tone})` }}>{verdict}</p>
+          <p className="mt-1 text-[11px] text-ink-soft">
+            לפי הרוטציה המוסכמת · מאז {fmtShort(clampFrom(fromKey))}{t.other ? ` · טרמפ אחר: ${t.other}` : ''}
+          </p>
+        </div>
+      </div>
+
+      <div className="flex gap-2 border-t border-line p-3">
+        <button onClick={onShare} className="flex-1 rounded-xl bg-surface-2 py-2.5 text-[13px] font-bold">שיתוף סיכום</button>
+        {abs >= 2 && (
+          <button onClick={onSettle} className="flex-1 rounded-xl border border-line py-2.5 text-[13px] font-bold">סגירת חשבון</button>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+/* מסלול המאזן: הגרף + רשימת האירועים שיצרו אותו (גם כחלופה טקסטואלית לגרף) */
+function TrackCard({ state, series, onPick }) {
+  const [showAll, setShowAll] = useState(false);
+  const events = useMemo(() => series.filter((s) => s.delta !== 0).reverse(), [series]);
+  const shown = showAll ? events : events.slice(0, 3);
+  if (series.length < 2) return null;
+  return (
+    <Card className="p-5">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <h2 className="font-display text-lg font-bold leading-none">מסלול המאזן</h2>
+        <div className="flex items-center gap-3 text-[11px] font-medium text-ink-soft">
+          <span className="flex items-center gap-1"><Dot who="me" /> לטובת {state.drivers.me}</span>
+          <span className="flex items-center gap-1"><Dot who="partner" /> לטובת {state.drivers.partner}</span>
+        </div>
+      </div>
+      <div className="mt-3"><BalanceChart series={series} state={state} onPick={onPick} /></div>
+
+      {events.length > 0 ? (
+        <div className="mt-3 divide-y divide-line">
+          {shown.map((s) => (
+            <button key={s.k} onClick={() => onPick(s.k)} className="flex w-full items-center gap-3 py-2.5 text-start">
+              <span className="grid h-6 min-w-[2.25rem] place-items-center rounded-md px-1.5 text-[11px] font-extrabold tnum text-ink"
+                style={{ background: s.delta > 0 ? 'var(--me-soft)' : 'var(--partner-soft)' }}>{signed(s.delta)}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[13px] font-semibold">
+                  {fmtShort(s.k)} · {labelFor(state, s.who)} נהג ביום {s.sched === 'none' ? 'חופשי' : 'של ' + labelFor(state, s.sched)}
+                </span>
+                {s.note && <span className="block truncate text-[11px] text-ink-soft">{s.note}</span>}
+              </span>
+              <span className="text-ink-soft" aria-hidden="true">‹</span>
+            </button>
+          ))}
+          {events.length > 3 && (
+            <button onClick={() => setShowAll((v) => !v)} className="w-full py-2.5 text-[12px] font-bold text-accent">
+              {showAll ? 'הצג פחות' : `עוד ${events.length - 3}`}
+            </button>
+          )}
+        </div>
+      ) : (
+        <p className="mt-3 text-[12px] text-ink-soft">אין חריגים בתקופה הזו — הכול לפי התוכנית.</p>
+      )}
+      <p className="mt-2 text-[11px] text-ink-soft">מי שנהג ביום שלא היה שלו מקבל נקודה. טרמפים אחרים לא נספרים.</p>
+    </Card>
+  );
+}
+
+/* ================================================================== *
+ *  לוח השבוע + תא היום הנבחר
+ * ================================================================== */
+
+function BoardCell({ state, d, selected, todayK, onSelect }) {
+  const today = noon(new Date());
+  const k = keyOf(d);
+  const isToday = k === todayK;
+  const a = actualDriver(state, d, today);
+  const sched = scheduledOwner(state, d);
+  const offPlan = a.who && !a.assumed && a.who !== sched && !(sched === 'none' && a.who === 'none');
+
+  const ghost = !a.who && sched !== 'none';
+  const who = a.who || (ghost ? sched : null);
+  const dashed = a.assumed || ghost;
+  const ariaWho = a.who ? labelFor(state, a.who) : sched !== 'none' ? `מתוכנן: ${labelFor(state, sched)}` : 'בלי נסיעה';
+
+  return (
+    <button onClick={() => onSelect(k)}
+      aria-label={`${DAY_NAMES[d.getDay()]} ${d.getDate()} — ${ariaWho}${isToday ? ' (היום)' : ''}`} aria-pressed={selected}
+      className="relative flex min-h-[104px] flex-col bg-surface"
+      style={{
+        background: isToday ? 'var(--accent-soft)' : 'var(--surface)',
+        boxShadow: selected ? 'inset 0 0 0 2px var(--accent)' : undefined,
+      }}>
+      <div className="px-1 pb-1 pt-2 text-center">
+        <div className="text-[11px] font-bold leading-none text-ink-soft">{DAY_LETTER[d.getDay()]}</div>
+        <div className="font-display text-[19px] font-bold leading-tight tnum"
+          style={isToday ? { color: 'var(--bronze)' } : undefined}>{d.getDate()}</div>
+        {isToday && <div className="mx-auto mt-0.5 h-[2px] w-4 rounded-full" style={{ background: 'var(--bronze)' }} />}
+      </div>
+      <div className="grid flex-1 place-items-center p-1">
+        {who ? (
+          <span className="grid h-8 w-8 place-items-center rounded-xl font-display text-sm font-bold"
+            style={{
+              color: DRIVER_COLOR[who], opacity: dashed ? 0.72 : 1,
+              background: dashed ? 'transparent' : DRIVER_SOFT[who],
+              border: '1.5px ' + (dashed ? 'dashed ' : 'solid ') + DRIVER_COLOR[who],
+            }}>
+            {markGlyph(state, who)}
+          </span>
+        ) : (
+          <span className="text-xs text-ink-soft" style={{ opacity: 0.3 }}>·</span>
+        )}
+      </div>
+      {offPlan && <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full" style={{ background: 'var(--warn)' }} />}
+    </button>
+  );
+}
+
+function SelectedDay({ state, dateKey, todayK, onSet, onNote, onClear }) {
+  const d = parseKey(dateKey);
+  const today = noon(new Date());
+  const sched = scheduledOwner(state, d);
+  const cur = actualDriver(state, d, today);
+  const isToday = dateKey === todayK;
+  const logged = cur.who && !cur.assumed;
+
+  // הערה: טיוטה מקומית, נשמרת ביציאה מהשדה / Enter — בלי טוסט ובלי לרשום נסיעה בטעות
+  const [note, setNote] = useState(cur.note || '');
+  useEffect(() => { setNote(cur.note || ''); }, [dateKey, cur.note]);
+  const commitNote = () => { if (note.trim() !== (cur.note || '')) onNote(dateKey, note.trim()); };
+
+  const opts = [
+    ['me', 'אני נהגתי'], ['partner', `${state.drivers.partner} נהג/ה`],
+    ['other', 'טרמפ אחר'], ['none', 'לא נסענו'],
+  ];
+  let statusLine;
+  if (logged) statusLine = `נרשם: ${labelFor(state, cur.who)}`;
+  else if (cur.who) statusLine = 'לפי התוכנית — עדיין לא אושר';
+  else statusLine = 'טרם נרשם';
+
+  return (
+    <div className="border-t border-line p-5">
+      <div className="flex items-baseline justify-between">
+        <Eyebrow>{isToday ? 'היום · ' : ''}{fmtLong(d)}</Eyebrow>
+        {logged && <button onClick={() => onClear(dateKey)} className="text-[11px] font-bold text-debt">נקה רישום</button>}
+      </div>
+
+      <p className="mt-2 font-display text-lg font-bold">
+        {sched === 'none' ? 'יום חופשי — אין תור'
+          : sched === 'me' ? 'התור שלך לנהוג'
+            : `התור של ${labelFor(state, sched)}`}
+      </p>
+      <p className="mt-0.5 text-[12px] text-ink-soft">{statusLine}</p>
+
+      <div className="mt-3.5 grid grid-cols-2 gap-2">
+        {opts.map(([v, text]) => {
+          const active = cur.who === v;
+          return (
+            <button key={v} onClick={() => onSet(dateKey, v, note.trim())} aria-pressed={active}
+              className={'flex items-center gap-2 rounded-xl border px-3 py-3 text-sm transition ' +
+                (active ? 'font-bold' : 'border-line bg-surface font-semibold')}
+              style={active ? {
+                borderColor: DRIVER_COLOR[v], background: DRIVER_SOFT[v],
+                borderStyle: cur.assumed ? 'dashed' : 'solid', opacity: cur.assumed ? 0.82 : 1,
+              } : undefined}>
+              <Dot who={v} /> <span className="min-w-0 truncate">{text}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <input value={note} maxLength={200} aria-label="הערה ליום"
+        onChange={(e) => setNote(e.target.value)} onBlur={commitNote}
+        onKeyDown={(e) => { if (e.key === 'Enter') { commitNote(); e.currentTarget.blur(); } }}
+        placeholder="הערה — יום מחלה, תחבורה ציבורית, החלפנו…"
+        className="mt-3 w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-sm text-ink placeholder:text-ink-soft/60" />
+    </div>
+  );
+}
+
+function WeekBoard({ state, todayK, sel, setSel, onSet, onNote, onClear, onConfirmWeek }) {
+  const [view, setView] = useState('week');
+  const [cursor, setCursor] = useState(() => noon(new Date()));
+  const today = noon(new Date());
+
+  const weekStart = useMemo(() => addDays(cursor, -cursor.getDay()), [cursor]);
+  const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
+  const monthCells = useMemo(() => {
+    const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1, 12);
+    const start = addDays(first, -first.getDay());
+    const daysInMonth = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate();
+    const rows = Math.ceil((first.getDay() + daysInMonth) / 7);
+    return Array.from({ length: rows * 7 }, (_, i) => addDays(start, i));
+  }, [cursor]);
+
+  // בחירת יום מחוץ לטווח הנראה (מהגרף / מהרשימה) — הלוח קופץ אליו
+  useEffect(() => {
+    const dsel = parseKey(sel);
+    setCursor((c) => (view === 'week' ? (sameWeek(c, dsel) ? c : dsel) : (sameMonth(c, dsel) ? c : dsel)));
+  }, [sel]);
+
+  // חצות: מי שעמד על "היום" של אתמול עובר ל"היום" של היום
+  const prevToday = useRef(todayK);
+  useEffect(() => {
+    if (prevToday.current === todayK) return;
+    const p = parseKey(prevToday.current);
+    prevToday.current = todayK;
+    setCursor((c) => ((view === 'week' ? sameWeek(c, p) : sameMonth(c, p)) ? noon(new Date()) : c));
+  }, [todayK]);
+
+  const step = (n) => {
+    if (view === 'week') setCursor((c) => addDays(c, n * 7));
+    else setCursor((c) => noon(new Date(c.getFullYear(), c.getMonth() + n, 1)));
+  };
+  const goToday = () => { setCursor(noon(new Date())); setSel(todayKey()); };
+
+  const rangeLabel = view === 'week'
+    ? `${fmtShort(keyOf(weekDays[0]))} – ${fmtShort(keyOf(weekDays[6]))}`
+    : cursor.toLocaleDateString(LOCALE, { month: 'long', year: 'numeric' });
+
+  const pending = useMemo(() => pendingKeys(state), [state, todayK]);
+
+  return (
+    <Card id="board" className="scroll-mt-3 overflow-hidden">
+      <div className="h-[3px]" style={{ background: 'var(--bronze)' }} />
+
+      <div className="flex items-center justify-between p-5 pb-3">
+        <h2 className="font-display text-lg font-bold leading-none">{view === 'week' ? 'השבוע' : 'החודש'}</h2>
+        <div className="flex items-center gap-2">
+          <button onClick={goToday} className="text-[12px] font-bold text-accent">היום</button>
+          <Seg value={view} onChange={setView} label="תצוגה"
+            options={[{ value: 'week', label: 'שבוע' }, { value: 'month', label: 'חודש' }]} />
+        </div>
+      </div>
+
+      <div className="flex items-center gap-1 px-3 pb-2 text-ink-soft">
+        <button onClick={() => step(-1)} aria-label={view === 'week' ? 'שבוע קודם' : 'חודש קודם'}
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-lg">›</button>
+        <div className="flex-1 text-center text-[12px] font-semibold tnum" aria-live="polite">{rangeLabel}</div>
+        <button onClick={() => step(1)} aria-label={view === 'week' ? 'שבוע הבא' : 'חודש הבא'}
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-lg">‹</button>
+      </div>
+
+      {view === 'week' ? (
+        <div className="mx-4 grid grid-cols-7 gap-px overflow-hidden rounded-xl bg-line">
+          {weekDays.map((d) => (
+            <BoardCell key={keyOf(d)} state={state} d={d} todayK={todayK} selected={keyOf(d) === sel} onSelect={setSel} />
+          ))}
+        </div>
+      ) : (
+        <div className="mx-4">
+          <div className="mb-1 grid grid-cols-7 text-center text-[11px] font-bold text-ink-soft" aria-hidden="true">
+            {DAY_LETTER.map((l, i) => <span key={i}>{l}</span>)}
+          </div>
+          <div className="grid grid-cols-7 gap-px overflow-hidden rounded-xl bg-line">
+            {monthCells.map((d) => {
+              const inMonth = d.getMonth() === cursor.getMonth();
+              const k = keyOf(d);
+              const a = actualDriver(state, d, today);
+              const sched = scheduledOwner(state, d);
+              const isToday = k === todayK;
+              const offPlan = a.who && !a.assumed && a.who !== sched && !(sched === 'none' && a.who === 'none');
+              const who = a.who && a.who !== 'none' ? a.who : null;
+              return (
+                <button key={k} onClick={() => setSel(k)} aria-pressed={k === sel}
+                  aria-label={`${d.getDate()} ${d.toLocaleDateString(LOCALE, { month: 'long' })} — ${a.who ? labelFor(state, a.who) : sched !== 'none' ? 'מתוכנן: ' + labelFor(state, sched) : 'בלי נסיעה'}${isToday ? ' (היום)' : ''}`}
+                  className="relative flex aspect-square flex-col items-center justify-center gap-0.5 bg-surface"
+                  style={{
+                    opacity: inMonth ? 1 : 0.3,
+                    boxShadow: k === sel ? 'inset 0 0 0 2px var(--accent)' : isToday ? 'inset 0 0 0 1.5px var(--bronze)' : undefined,
+                  }}>
+                  <span className="font-display text-[11px] font-bold tnum" style={{ color: isToday ? 'var(--bronze)' : undefined }}>
+                    {d.getDate()}
+                  </span>
+                  {who ? (
+                    <span className="grid h-[18px] w-[18px] place-items-center rounded-md font-display text-[10px] font-bold leading-none"
+                      style={{
+                        color: DRIVER_COLOR[who], opacity: a.assumed ? 0.72 : 1,
+                        background: a.assumed ? 'transparent' : DRIVER_SOFT[who],
+                        border: '1.25px ' + (a.assumed ? 'dashed ' : 'solid ') + DRIVER_COLOR[who],
+                      }}>
+                      {markGlyph(state, who)}
+                    </span>
+                  ) : (
+                    <span className="h-[18px]" />
+                  )}
+                  {offPlan && <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full" style={{ background: 'var(--warn)' }} />}
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-2.5 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-ink-soft">
+            <span className="flex items-center gap-1">
+              <span className="grid h-3.5 w-3.5 place-items-center rounded-[3px] border font-display text-[8px] font-bold leading-none"
+                style={{ color: 'var(--me)', borderColor: 'var(--me)', background: 'var(--me-soft)' }}>{markGlyph(state, 'me')}</span>
+              {state.drivers.me}
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="grid h-3.5 w-3.5 place-items-center rounded-[3px] border font-display text-[8px] font-bold leading-none"
+                style={{ color: 'var(--partner)', borderColor: 'var(--partner)', background: 'var(--partner-soft)' }}>{markGlyph(state, 'partner')}</span>
+              {state.drivers.partner}
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="grid h-3.5 w-3.5 place-items-center rounded-[3px] border font-display text-[8px] font-bold leading-none"
+                style={{ color: 'var(--other)', borderColor: 'var(--other)', background: 'var(--surface-2)' }}>↗</span>
+              אחר
+            </span>
+            <span>מקווקו = צפוי · מלא = נרשם · פינה = חריג</span>
+          </div>
+        </div>
+      )}
+
+      {pending.length > 0 && (
+        <button onClick={() => onConfirmWeek(pending)}
+          className="mx-4 mt-3 flex w-[calc(100%-2rem)] items-center justify-center gap-1.5 rounded-xl border border-dashed border-line py-2.5 text-[12px] font-bold text-accent">
+          ✓ אשר {pending.length} ימים אחרונים לפי התוכנית
+        </button>
+      )}
+
+      <SelectedDay state={state} dateKey={sel} todayK={todayK} onSet={onSet} onNote={onNote} onClear={onClear} />
+    </Card>
+  );
+}
+
+/* ================================================================== *
+ *  App
+ * ================================================================== */
+
+function App() {
+  const [state, setState] = useState(loadState);
+  const [sheet, setSheet] = useState(null);
+  const todayK = useToday();
+  const [sel, setSel] = useState(todayK);
+  const [toast, setToast] = useState(null);
+  const closeToast = useCallback(() => setToast(null), []);
+  const showToast = useCallback((msg) => setToast({ msg }), []);
+
+  const stateRef = useRef(state);
+  useEffect(() => { stateRef.current = state; });
+
+  // טווח משותף לכרטיס הסיכום ולגרף — שני המקומות תמיד מדברים על אותה תקופה
+  const [range, setRange] = useState('all');
+  const fromKey = range === 'month' ? monthStartKey() : (state.settledFrom || state.startedOn);
+  const series = useMemo(() => balanceSeries(state, fromKey), [state, fromKey, todayK]);
+
+  useEffect(() => {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {}
+  }, [state]);
+
+  useEffect(() => {
+    const apply = () => {
+      const dt = document.documentElement.getAttribute('data-theme');
+      const sysDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const dark = state.theme === 'dark' || (state.theme === 'system' && (dt === 'dark' || (!dt && sysDark)));
+      document.documentElement.classList.toggle('dark', dark);
+    };
+    apply();
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, [state.theme]);
+
+  // חצות: הבחירה עוברת ליום החדש אם עמדה על "היום" הקודם
+  const prevToday = useRef(todayK);
+  useEffect(() => {
+    if (prevToday.current === todayK) return;
+    const p = prevToday.current;
+    prevToday.current = todayK;
+    setSel((s) => (s === p ? todayK : s));
+  }, [todayK]);
+
+  const patch = useCallback((p) => setState((s) => ({ ...s, ...p })), []);
+
+  const setDay = useCallback((k, actual, note) => {
+    const prev = stateRef.current.overrides[k] || null;
+    setState((s) => ({ ...s, overrides: { ...s.overrides, [k]: { actual, note } } }));
+    setToast({
+      msg: 'נרשם',
+      onUndo: () => setState((s2) => {
+        const ov = { ...s2.overrides }; if (prev) ov[k] = prev; else delete ov[k];
+        return { ...s2, overrides: ov };
+      }),
+    });
+  }, []);
+
+  // הערה בלבד — לא משנה מי נהג ולא מציג טוסט
+  const setNote = useCallback((k, note) => {
+    setState((s) => {
+      const ov = { ...s.overrides };
+      const cur = ov[k] || { actual: null, note: '' };
+      if (!cur.actual && !note) delete ov[k]; else ov[k] = { actual: cur.actual, note };
+      return { ...s, overrides: ov };
+    });
+  }, []);
+
+  const clearDay = useCallback((k) => {
+    const prev = stateRef.current.overrides[k] || null;
+    setState((s) => { const ov = { ...s.overrides }; delete ov[k]; return { ...s, overrides: ov }; });
+    setToast({
+      msg: 'הרישום נמחק',
+      onUndo: () => setState((s2) => (prev ? { ...s2, overrides: { ...s2.overrides, [k]: prev } } : s2)),
+    });
+  }, []);
+
+  const confirmWeek = useCallback((keys) => {
+    const snap = stateRef.current;
+    const prev = {}; keys.forEach((k) => { prev[k] = snap.overrides[k] || null; });
+    setState((s) => {
+      const ov = { ...s.overrides };
+      keys.forEach((k) => { ov[k] = { actual: scheduledOwner(s, parseKey(k)), note: (ov[k] && ov[k].note) || '' }; });
+      return { ...s, overrides: ov };
+    });
+    setToast({
+      msg: `${keys.length} ימים אושרו`,
+      onUndo: () => setState((s2) => {
+        const o = { ...s2.overrides };
+        keys.forEach((k) => { if (prev[k]) o[k] = prev[k]; else delete o[k]; });
+        return { ...s2, overrides: o };
+      }),
+    });
+  }, []);
+
+  const pickDay = useCallback((k) => {
+    setSel(k);
+    const el = document.getElementById('board');
+    if (el) {
+      const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+    }
+  }, []);
+
+  const cycleTheme = () => {
+    const order = ['system', 'light', 'dark'];
+    patch({ theme: order[(order.indexOf(state.theme) + 1) % 3] });
+  };
+  const settleUp = () => { patch({ settledFrom: todayKey() }); showToast('החשבון נסגר'); };
+  const resetAll = () => setState({
+    ...sanitizeState(null), theme: state.theme, costPerDrive: state.costPerDrive,
+  });
+
+  return (
+    <div className="min-h-screen bg-ground font-sans text-ink">
+      <div className="mx-auto max-w-[460px] px-4 pb-14 pt-6">
+        <Header state={state} onCycleTheme={cycleTheme} onSettings={() => setSheet({ type: 'settings' })} />
+
+        <div className="mt-5 space-y-3.5">
+          <ScoreCard state={state} todayK={todayK} range={range} setRange={setRange} fromKey={fromKey} series={series}
+            onSettle={() => setSheet({ type: 'settle' })} onShare={() => setSheet({ type: 'summary' })} />
+          <WeekBoard state={state} todayK={todayK} sel={sel} setSel={setSel} onSet={setDay} onNote={setNote}
+            onClear={clearDay} onConfirmWeek={confirmWeek} />
+          <TrackCard state={state} series={series} onPick={pickDay} />
+        </div>
+
+        <p className="mt-7 text-center text-[11px] text-ink-soft">
+          הכול נשמר במכשיר הזה. לגיבוי — הגדרות ← גיבוי ושחזור.
+        </p>
+      </div>
+
+      <Toast toast={toast} onClose={closeToast} />
+
+      {sheet && sheet.type === 'settings' && (
+        <Settings state={state} patch={patch} onClose={() => setSheet(null)}
+          onReset={() => setSheet({ type: 'reset' })} onBackup={() => setSheet({ type: 'backup' })} />
+      )}
+      {sheet && sheet.type === 'summary' && (
+        <SummarySheet state={state} onClose={() => setSheet(null)} onToast={showToast} />
+      )}
+      {sheet && sheet.type === 'backup' && (
+        <BackupSheet state={state} onRestore={setState} onClose={() => setSheet(null)} onToast={showToast} />
+      )}
+      {sheet && sheet.type === 'settle' && (
+        <ConfirmSheet title="סגירת חשבון"
+          body={`${fmtShort(todayKey())} יהפוך לנקודת ההתחלה החדשה. הרישומים הישנים נשארים בהיסטוריה, אבל המאזן מתאפס לאיזון.`}
+          confirmLabel="לסגור חשבון" onConfirm={settleUp} onClose={() => setSheet(null)} />
+      )}
+      {sheet && sheet.type === 'reset' && (
+        <ConfirmSheet title="איפוס הכול" danger
+          body="מוחק את כל הרישומים וההגדרות במכשיר הזה ומתחיל מחדש. כדאי להעתיק גיבוי לפני."
+          confirmLabel="לאפס" onConfirm={resetAll} onClose={() => setSheet(null)} />
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App /></ErrorBoundary>);
+</script>
+</body>
+</html>
