@@ -969,7 +969,7 @@ function SelectedDay({ state, dateKey, todayK, onSet, onNote, onClear }) {
 }
 
 function WeekBoard({ state, todayK, sel, setSel, onSet, onNote, onClear, onConfirmWeek }) {
-  const [view, setView] = useState('week');
+  const [view, setView] = useState('month');
   const [cursor, setCursor] = useState(() => noon(new Date()));
   const today = noon(new Date());
 
@@ -1050,7 +1050,9 @@ function WeekBoard({ state, todayK, sel, setSel, onSet, onNote, onClear, onConfi
               const sched = scheduledOwner(state, d);
               const isToday = k === todayK;
               const offPlan = a.who && !a.assumed && a.who !== sched && !(sched === 'none' && a.who === 'none');
-              const who = a.who && a.who !== 'none' ? a.who : null;
+              const ghost = !a.who && sched !== 'none';
+              const who = a.who || (ghost ? sched : null);
+              const dashed = a.assumed || ghost;
               return (
                 <button key={k} onClick={() => setSel(k)} aria-pressed={k === sel}
                   aria-label={`${d.getDate()} ${d.toLocaleDateString(LOCALE, { month: 'long' })} — ${a.who ? labelFor(state, a.who) : sched !== 'none' ? 'מתוכנן: ' + labelFor(state, sched) : 'בלי נסיעה'}${isToday ? ' (היום)' : ''}`}
@@ -1065,9 +1067,9 @@ function WeekBoard({ state, todayK, sel, setSel, onSet, onNote, onClear, onConfi
                   {who ? (
                     <span className="grid h-[18px] w-[18px] place-items-center rounded-md font-display text-[10px] font-bold leading-none"
                       style={{
-                        color: DRIVER_COLOR[who], opacity: a.assumed ? 0.72 : 1,
-                        background: a.assumed ? 'transparent' : DRIVER_SOFT[who],
-                        border: '1.25px ' + (a.assumed ? 'dashed ' : 'solid ') + DRIVER_COLOR[who],
+                        color: DRIVER_COLOR[who], opacity: dashed ? 0.72 : 1,
+                        background: dashed ? 'transparent' : DRIVER_SOFT[who],
+                        border: '1.25px ' + (dashed ? 'dashed ' : 'solid ') + DRIVER_COLOR[who],
                       }}>
                       {markGlyph(state, who)}
                     </span>
@@ -1094,6 +1096,11 @@ function WeekBoard({ state, todayK, sel, setSel, onSet, onNote, onClear, onConfi
               <span className="grid h-3.5 w-3.5 place-items-center rounded-[3px] border font-display text-[8px] font-bold leading-none"
                 style={{ color: 'var(--other)', borderColor: 'var(--other)', background: 'var(--surface-2)' }}>↗</span>
               אחר
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="grid h-3.5 w-3.5 place-items-center rounded-[3px] border font-display text-[8px] font-bold leading-none"
+                style={{ color: 'var(--other)', borderColor: 'var(--line)' }}>–</span>
+              לא נסענו
             </span>
             <span>מקווקו = צפוי · מלא = נרשם · פינה = חריג</span>
           </div>
