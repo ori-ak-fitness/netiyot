@@ -302,6 +302,18 @@ const DRIVER_SOFT = { me: 'var(--me-soft)', partner: 'var(--partner-soft)', othe
 
 const labelFor = (state, who) =>
   ({ me: state.drivers.me, partner: state.drivers.partner, other: 'טרמפ אחר', none: 'בלי נסיעה' }[who] || who);
+// כמו labelFor, אבל ליום ספציפי: אם זה "טרמפ אחר" עם הערה, מציג את ההערה עצמה (למשל שם) במקום התווית הגנרית
+const whoLabelFor = (state, a) => (a.who === 'other' && a.note ? a.note : labelFor(state, a.who));
+// שמות/הערות שהוקלדו בעבר לימי "טרמפ אחר" — כדי להציע אותם כברירות מהירות בפעם הבאה
+function recentOtherNotes(state, limit) {
+  const seen = new Set(); const out = [];
+  for (const k of Object.keys(state.overrides).sort().reverse()) {
+    const ov = state.overrides[k];
+    const note = ov && ov.actual === 'other' && ov.note && ov.note.trim();
+    if (note && !seen.has(note)) { seen.add(note); out.push(note); if (out.length >= limit) break; }
+  }
+  return out;
+}
 function markGlyph(state, who) {
   if (who === 'other') return '↗';
   if (who === 'me') return (state.drivers.me.trim()[0] || 'א');
@@ -871,7 +883,7 @@ function BoardCell({ state, d, selected, todayK, onSelect }) {
   const ghost = !a.who && sched !== 'none';
   const who = a.who || (ghost ? sched : null);
   const dashed = a.assumed || ghost;
-  const ariaWho = a.who ? labelFor(state, a.who) : sched !== 'none' ? `מתוכנן: ${labelFor(state, sched)}` : 'בלי נסיעה';
+  const ariaWho = a.who ? whoLabelFor(state, a) : sched !== 'none' ? `מתוכנן: ${labelFor(state, sched)}` : 'בלי נסיעה';
 
   return (
     <button onClick={() => onSelect(k)}
@@ -924,9 +936,13 @@ function SelectedDay({ state, dateKey, todayK, onSet, onNote, onClear }) {
     ['other', 'טרמפ אחר'], ['none', 'לא נסענו'],
   ];
   let statusLine;
-  if (logged) statusLine = `נרשם: ${labelFor(state, cur.who)}`;
+  if (logged) statusLine = `נרשם: ${whoLabelFor(state, cur)}`;
   else if (cur.who) statusLine = 'לפי התוכנית — עדיין לא אושר';
   else statusLine = 'טרם נרשם';
+
+  // הצעות מהירות להערה על "טרמפ אחר" — שמות/הערות שכבר הוקלדו בעבר, רק כשזו האפשרות הנבחרת
+  const otherChips = cur.who === 'other' ? recentOtherNotes(state, 6).filter((n) => n !== note) : [];
+  const pickChip = (n) => { setNote(n); onNote(dateKey, n); };
 
   return (
     <div className="border-t border-line p-5">
@@ -962,8 +978,19 @@ function SelectedDay({ state, dateKey, todayK, onSet, onNote, onClear }) {
       <input value={note} maxLength={200} aria-label="הערה ליום"
         onChange={(e) => setNote(e.target.value)} onBlur={commitNote}
         onKeyDown={(e) => { if (e.key === 'Enter') { commitNote(); e.currentTarget.blur(); } }}
-        placeholder="הערה — יום מחלה, תחבורה ציבורית, החלפנו…"
+        placeholder={cur.who === 'other' ? 'מי נהג? — אמא, שכן, חבר מהעבודה…' : 'הערה — יום מחלה, תחבורה ציבורית, החלפנו…'}
         className="mt-3 w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-sm text-ink placeholder:text-ink-soft/60" />
+
+      {otherChips.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {otherChips.map((n) => (
+            <button key={n} type="button" onClick={() => pickChip(n)}
+              className="rounded-full border border-line bg-surface-2 px-2.5 py-1 text-[11px] font-semibold text-ink-soft">
+              {n}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -973,7 +1000,7 @@ function TodayGlance({ state, todayK, selected, onOpen }) {
   const d = parseKey(todayK);
   const sched = scheduledOwner(state, d);
   const a = actualDriver(state, d, noon(new Date()));
-  const label = a.who ? labelFor(state, a.who) : sched === 'none' ? 'בלי נסיעה' : 'טרם נרשם';
+  const label = a.who ? whoLabelFor(state, a) : sched === 'none' ? 'בלי נסיעה' : 'טרם נרשם';
   return (
     <button onClick={() => onOpen(todayK)}
       className="mx-4 mb-3 flex items-center justify-between rounded-xl px-3.5 py-2.5"
@@ -1075,7 +1102,7 @@ function WeekBoard({ state, todayK, sel, setSel, onSet, onNote, onClear, onConfi
               const dashed = a.assumed || ghost;
               return (
                 <button key={k} onClick={() => setSel(k)} aria-pressed={k === sel}
-                  aria-label={`${d.getDate()} ${d.toLocaleDateString(LOCALE, { month: 'long' })} — ${a.who ? labelFor(state, a.who) : sched !== 'none' ? 'מתוכנן: ' + labelFor(state, sched) : 'בלי נסיעה'}${isToday ? ' (היום)' : ''}`}
+                  aria-label={`${d.getDate()} ${d.toLocaleDateString(LOCALE, { month: 'long' })} — ${a.who ? whoLabelFor(state, a) : sched !== 'none' ? 'מתוכנן: ' + labelFor(state, sched) : 'בלי נסיעה'}${isToday ? ' (היום)' : ''}`}
                   className="relative flex aspect-square flex-col items-center justify-center gap-0.5 bg-surface"
                   style={{
                     opacity: inMonth ? 1 : 0.3,
