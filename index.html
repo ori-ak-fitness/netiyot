@@ -978,7 +978,7 @@ function TodayGlance({ state, todayK, selected, onOpen }) {
     <button onClick={() => onOpen(todayK)}
       className="mx-4 mb-3 flex items-center justify-between rounded-xl px-3.5 py-2.5"
       style={{ background: 'var(--accent-soft)', boxShadow: selected ? 'inset 0 0 0 1.5px var(--accent)' : undefined }}>
-      <span className="text-[12px] font-bold text-ink-soft">היום נהג/ה</span>
+      <span className="text-[12px] font-bold text-ink-soft">מי נהג היום</span>
       <span className="flex items-center gap-1.5 text-[13px] font-bold">
         <Dot who={a.who || 'none'} /> {label}{a.assumed ? ' · צפוי' : ''}
       </span>
@@ -1269,18 +1269,16 @@ function App() {
             options={[{ value: 'board', label: 'לוח' }, { value: 'summary', label: 'סיכום' }]} />
         </div>
 
-        <div className="mt-4 space-y-3.5">
-          {tab === 'board' && (
-            <WeekBoard state={state} todayK={todayK} sel={sel} setSel={setSel} onSet={setDay} onNote={setNote}
-              onClear={clearDay} onConfirmWeek={confirmWeek} />
-          )}
-          {tab === 'summary' && (
-            <>
-              <ScoreCard state={state} todayK={todayK} range={range} setRange={setRange} fromKey={fromKey} series={series}
-                onSettle={() => setSheet({ type: 'settle' })} onShare={() => setSheet({ type: 'summary' })} />
-              <TrackCard state={state} series={series} onPick={pickDay} />
-            </>
-          )}
+        {/* שני התאים נשארים מורכבים תמיד (רק מוסתרים) — כדי שמעבר בין "לוח" ל"סיכום"
+            לא יאפס את המיקום בלוח (חודש/שבוע שגללת אליו) או את הטוגלים בכרטיס הסיכום */}
+        <div className="mt-4 space-y-3.5" hidden={tab !== 'board'}>
+          <WeekBoard state={state} todayK={todayK} sel={sel} setSel={setSel} onSet={setDay} onNote={setNote}
+            onClear={clearDay} onConfirmWeek={confirmWeek} />
+        </div>
+        <div className="mt-4 space-y-3.5" hidden={tab !== 'summary'}>
+          <ScoreCard state={state} todayK={todayK} range={range} setRange={setRange} fromKey={fromKey} series={series}
+            onSettle={() => setSheet({ type: 'settle' })} onShare={() => setSheet({ type: 'summary' })} />
+          <TrackCard state={state} series={series} onPick={pickDay} />
         </div>
 
         <p className="mt-7 text-center text-[11px] text-ink-soft">
